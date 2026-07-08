@@ -1,29 +1,66 @@
 package com.example.mycameraenhancer
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Bundle
+import android.widget.Button
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.view.PreviewView
-import com.google.common.util.concurrent.ListenableFuture
-import java.util.concurrent.Executors
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var previewView: PreviewView
-    private val cameraHelper = CameraHelper(this)
+    private lateinit var cameraHelper: CameraHelper
+    private val REQUEST_CODE_PERMISSIONS = 101
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         previewView = findViewById(R.id.previewView)
-        val btnCapture = findViewById<Button>(R.id.btnCapture)
+        val btnCapture: Button = findViewById(R.id.btnCapture)
 
-        cameraHelper.startCamera(previewView)
+        cameraHelper = CameraHelper(this)
+
+        if (allPermissionsGranted()) {
+            cameraHelper.startCamera(previewView)
+        } else {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE),
+                REQUEST_CODE_PERMISSIONS
+            )
+        }
 
         btnCapture.setOnClickListener {
-            cameraHelper.takeEnhancedPhoto { enhancedBitmap ->
-                // Save or show the enhanced image
-                ImageProcessor.saveBitmap(this, enhancedBitmap, "enhanced_photo.jpg")
+            cameraHelper.takeBurstAndEnhance { enhancedBitmap ->
+                ImageProcessor.saveBitmap(this, enhancedBitmap, "enhanced_${System.currentTimeMillis()}.jpg")
+                runOnUiThread {
+                    Toast.makeText(this, "Enhanced photo saved!", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun allPermissionsGranted() = REQUIRED_PERMISSIONS.all {
+        ContextCompat.checkSelfPermission(baseContext, it) == PackageManager.PERMISSION_GRANTED
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_PERMISSIONS) {
+            if (allPermissionsGranted()) {
+                cameraHelper.startCamera(previewView)
+            } else {
+                Toast.makeText(this, "Permissions not granted. Camera cannot start.", Toast.LENGTH_SHORT).show()
+                finish()
             }
         }
     }
@@ -31,5 +68,12 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         cameraHelper.shutdown()
+    }
+
+    companion object {
+        private val REQUIRED_PERMISSIONS = arrayOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        )
     }
 }
