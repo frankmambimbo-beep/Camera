@@ -6,6 +6,7 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class CameraHelper(private val context: Context) {
     private var imageCapture: ImageCapture? = null
@@ -16,7 +17,7 @@ class CameraHelper(private val context: Context) {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
 
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
 
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -29,25 +30,44 @@ class CameraHelper(private val context: Context) {
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(context as MainActivity, cameraSelector, preview, imageCapture)
+            cameraProvider.bindToLifecycle(
+                context as MainActivity,
+                cameraSelector,
+                preview,
+                imageCapture
+            )
         }, ContextCompat.getMainExecutor(context))
     }
 
-    fun takeEnhancedPhoto(callback: (android.graphics.Bitmap) -> Unit) {
-        // For simplicity: capture one image. Expand to burst later.
-        val imageCapture = imageCapture ?: return
+    fun takeBurstAndEnhance(callback: (android.graphics.Bitmap) -> Unit) {
+        val burstSize = 5  // Adjust based on your phone's performance
+        val images = mutableListOf<ImageProxy>()
 
-        imageCapture.takePicture(
-            ContextCompat.getMainExecutor(context),
-            object : ImageCapture.OnImageCapturedCallback() {
-                override fun onCaptureSuccess(image: ImageProxy) {
-                    val bitmap = ImageProcessor.proxyToBitmap(image)
-                    val enhanced = ImageProcessor.enhanceImage(bitmap)
-                    callback(enhanced)
-                    image.close()
+        fun captureNext(index: Int) {
+            imageCapture?.takePicture(
+                ContextCompat.getMainExecutor(context),
+                object : ImageCapture.OnImageCapturedCallback() {
+                    override fun onCaptureSuccess(image: ImageProxy) {
+                        images.add(image)
+                        if (index < burstSize - 1) {
+                            captureNext(index + 1)
+                        } else {
+                            processBurst(images, callback)
+                        }
+                    }
                 }
-            }
-        )
+            )
+        }
+        captureNext(0)
+    }
+
+    private fun processBurst(images: List<ImageProxy>, callback: (android.graphics.Bitmap) -> Unit) {
+        val bitmaps = images.map { ImageProcessor.proxyToBitmap(it) }
+        val enhanced = ImageProcessor.enhanceBurst(bitmaps)
+        
+        // Clean up
+        images.forEach { it.close() }
+        callback(enhanced)
     }
 
     fun shutdown() {
